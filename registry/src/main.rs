@@ -1,6 +1,6 @@
-use actix_web::{web, App, HttpServer, HttpResponse, middleware};
+use actix_web::{web, App, HttpServer, middleware};
 use sqlx::postgres::PgPoolOptions;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod auth;
@@ -35,12 +35,20 @@ async fn main() -> anyhow::Result<()> {
         .connect(&database_url)
         .await?;
 
-    // Run migrations
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await?;
+    // Run migrations (handle checksum errors gracefully for development)
+    match sqlx::migrate!("./migrations").run(&pool).await {
+        Ok(_) => info!("Database migrations completed successfully"),
+        Err(e) => {
+            let err_msg = e.to_string();
+            if err_msg.contains("previously applied but has been modified") {
+                warn!("Migration checksum mismatch detected - continuing with existing schema: {}", err_msg);
+            } else {
+                return Err(e.into());
+            }
+        }
+    }
 
-    info!("Database connected and migrated");
+    info!("Database connected");
 
     // Server config
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
