@@ -32,7 +32,7 @@ pub struct RegisterOrgRequest {
     pub admin_amid: String,
     pub admin_signing_public_key: String,
     pub signature: String,
-    pub timestamp: chrono::DateTime<Utc>,
+    pub timestamp: String,
 }
 
 /// Response for organization registration
@@ -126,7 +126,7 @@ pub async fn register_org(
         &req.admin_amid,
         &req.admin_signing_public_key,
         &req.signature,
-        req.timestamp,
+        &req.timestamp,
     ) {
         warn!("Org registration signature failed: {:?}", auth_err);
         return HttpResponse::Unauthorized().json(RegisterOrgResponse {
