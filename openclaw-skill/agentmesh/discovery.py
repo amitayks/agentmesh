@@ -46,7 +46,7 @@ class AgentInfo:
             direct_endpoint=data.get('direct_endpoint'),
             status=data['status'],
             reputation_score=data.get('reputation_score', 0.5),
-            last_seen=datetime.fromisoformat(data['last_seen']),
+            last_seen=datetime.fromisoformat(data['last_seen'].replace('Z', '+00:00')),
         )
 
 
