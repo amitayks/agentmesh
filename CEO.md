@@ -88,7 +88,25 @@
 | E2EE | X3DH + Double Ratchet | ✓ COMPLETE |
 | P2P | ICE/STUN negotiation | ✓ COMPLETE |
 | Dashboard | HTML + vanilla JS + aiohttp | ✓ COMPLETE |
-| Deployment | Docker + Fly.io | ✓ CONFIGURED |
+| Deployment | Docker + Railway | ✓ CONFIGURED |
+
+---
+
+## Infrastructure: Railway
+
+**Decision:** Using Railway instead of Fly.io
+
+**Rationale:**
+- Simpler deployment flow
+- Automatic PORT injection
+- Built-in PostgreSQL
+- Great Docker support
+- Competitive pricing
+
+**Estimated Costs (Railway):**
+- Starter Plan: $5/month (includes $5 credit)
+- Pro Plan: $20/month (recommended)
+- Estimated usage: ~$20-35/month total
 
 ---
 
@@ -159,19 +177,23 @@ docker-compose up -d
 # PostgreSQL: localhost:5432
 ```
 
-### Production (Fly.io)
+### Production (Railway)
 ```bash
-# Install flyctl
-curl -L https://fly.io/install.sh | sh
+# Install Railway CLI
+npm install -g @railway/cli
 
 # Login
-fly auth login
+railway login
 
-# Deploy relay
-fly deploy
+# Deploy everything
+./deploy.sh all
 
-# For registry, create separate fly.toml
+# Or deploy individually
+./deploy.sh relay
+./deploy.sh registry
 ```
+
+See `RAILWAY_DEPLOY.md` for detailed instructions.
 
 ### OpenClaw Skill Installation
 ```bash
@@ -184,17 +206,17 @@ python setup.py
 
 ## NEXT STEPS TO SHIP
 
-1. **FUNDING NEEDED: ~$55/month for Fly.io**
-   - Relay Server: ~$25/month
-   - Registry API: ~$15/month
-   - PostgreSQL (Fly Postgres): ~$15/month
+1. **FUNDING NEEDED: ~$20-35/month for Railway**
+   - Railway Pro Plan: $20/month
+   - Includes compute for Relay + Registry + PostgreSQL
 
 2. **Domain Name Needed**
    - `agentmesh.net` or similar
    - For: relay.agentmesh.net, api.agentmesh.net
 
 3. **After Funding:**
-   - Deploy to Fly.io
+   - Run `./deploy.sh all` to deploy to Railway
+   - Configure custom domains in Railway dashboard
    - Test with real agents
    - Post on Moltbook
    - Start viral adoption loop

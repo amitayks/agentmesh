@@ -2,6 +2,7 @@
 Configuration management for AgentMesh.
 """
 
+import os
 import json
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
@@ -33,6 +34,16 @@ DEFAULT_POLICY = {
         "threshold_usd": 50
     }
 }
+
+# Production endpoints (Railway)
+PRODUCTION_RELAY_URL = os.environ.get(
+    "AGENTMESH_RELAY_URL",
+    "wss://relay.agentmesh.net/v1/connect"
+)
+PRODUCTION_REGISTRY_URL = os.environ.get(
+    "AGENTMESH_REGISTRY_URL",
+    "https://api.agentmesh.net/v1"
+)
 
 
 @dataclass
@@ -127,8 +138,8 @@ class Policy:
 @dataclass
 class Config:
     """AgentMesh client configuration."""
-    relay_url: str = "wss://relay.agentmesh.net/v1/connect"
-    registry_url: str = "https://api.agentmesh.net/v1"
+    relay_url: str = PRODUCTION_RELAY_URL
+    registry_url: str = PRODUCTION_REGISTRY_URL
     stun_servers: List[str] = field(default_factory=lambda: [
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",

@@ -25,8 +25,10 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let addr = std::env::var("RELAY_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:8765".to_string());
+    // Railway provides PORT env var
+    let port = std::env::var("PORT")
+        .unwrap_or_else(|_| "8765".to_string());
+    let addr = format!("0.0.0.0:{}", port);
 
     let addr: SocketAddr = addr.parse()?;
 
