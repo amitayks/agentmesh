@@ -439,17 +439,20 @@ async fn get_org_by_domain(pool: &PgPool, domain: &str) -> Result<Option<Organiz
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| Organization {
-        id: r.id,
-        name: r.name,
-        domain: r.domain,
-        root_certificate: r.root_certificate,
-        dns_challenge: r.dns_challenge,
-        dns_verified: r.dns_verified,
-        admin_amid: r.admin_amid,
-        created_at: r.created_at,
-        verified_at: r.verified_at,
-    }))
+    Ok(match row {
+        Some(r) => Some(Organization {
+            id: r.id,
+            name: r.name,
+            domain: r.domain,
+            root_certificate: r.root_certificate,
+            dns_challenge: r.dns_challenge,
+            dns_verified: r.dns_verified,
+            admin_amid: r.admin_amid.unwrap_or_default(),
+            created_at: r.created_at,
+            verified_at: r.verified_at,
+        }),
+        None => None,
+    })
 }
 
 async fn get_org_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Organization>, sqlx::Error> {
@@ -464,17 +467,20 @@ async fn get_org_by_id(pool: &PgPool, id: Uuid) -> Result<Option<Organization>, 
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| Organization {
-        id: r.id,
-        name: r.name,
-        domain: r.domain,
-        root_certificate: r.root_certificate,
-        dns_challenge: r.dns_challenge,
-        dns_verified: r.dns_verified,
-        admin_amid: r.admin_amid,
-        created_at: r.created_at,
-        verified_at: r.verified_at,
-    }))
+    Ok(match row {
+        Some(r) => Some(Organization {
+            id: r.id,
+            name: r.name,
+            domain: r.domain,
+            root_certificate: r.root_certificate,
+            dns_challenge: r.dns_challenge,
+            dns_verified: r.dns_verified,
+            admin_amid: r.admin_amid.unwrap_or_default(),
+            created_at: r.created_at,
+            verified_at: r.verified_at,
+        }),
+        None => None,
+    })
 }
 
 async fn mark_org_verified(pool: &PgPool, id: Uuid, root_cert: &str) -> Result<(), sqlx::Error> {

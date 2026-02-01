@@ -3,6 +3,9 @@
 
 FROM rust:1.83-alpine AS builder
 
+# Use SQLx offline mode - no database needed during build
+ENV SQLX_OFFLINE=true
+
 # Install build dependencies
 RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static
 
@@ -13,12 +16,19 @@ COPY Cargo.toml Cargo.lock* ./
 
 # Create dummy source to cache dependencies
 RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+# Pin problematic crates to versions compatible with Rust 1.83 (avoid edition2024)
+RUN cargo update base64ct --precise 1.6.0 2>/dev/null || true
+RUN cargo update time --precise 0.3.36 2>/dev/null || true
+RUN cargo update home --precise 0.5.9 2>/dev/null || true
+
 RUN cargo build --release
 RUN rm -rf src
 
-# Copy actual source
+# Copy actual source, migrations, and SQLx cache
 COPY src ./src
 COPY migrations ./migrations
+COPY .sqlx ./.sqlx
 
 # Build release binary
 RUN touch src/main.rs && cargo build --release

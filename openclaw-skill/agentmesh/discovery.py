@@ -55,7 +55,7 @@ class RegistryClient:
 
     def __init__(
         self,
-        base_url: str = "https://api.agentmesh.net/v1",
+        base_url: str = "https://agentmesh.online/v1",
         timeout: int = 30,
     ):
         self.base_url = base_url.rstrip('/')
@@ -66,7 +66,7 @@ class RegistryClient:
         identity: Identity,
         display_name: Optional[str] = None,
         capabilities: Optional[List[str]] = None,
-        relay_endpoint: str = "wss://relay.agentmesh.net/v1/connect",
+        relay_endpoint: str = "wss://relay.agentmesh.online/v1/connect",
         direct_endpoint: Optional[str] = None,
         verification_token: Optional[str] = None,
     ) -> dict:

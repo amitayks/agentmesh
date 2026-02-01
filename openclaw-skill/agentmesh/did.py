@@ -60,8 +60,8 @@ class DIDDocument:
         amid: str,
         signing_public_key_b64: str,
         exchange_public_key_b64: str,
-        relay_endpoint: str = "wss://relay.agentmesh.net/v1/connect",
-        registry_endpoint: str = "https://api.agentmesh.net/v1",
+        relay_endpoint: str = "wss://relay.agentmesh.online/v1/connect",
+        registry_endpoint: str = "https://agentmesh.online/v1",
     ) -> "DIDDocument":
         """Create a new DID document for an agent."""
         did = f"did:{DID_METHOD}:{amid}"
@@ -251,7 +251,7 @@ class DIDManager:
         amid: str,
         signing_public_key_b64: str,
         exchange_public_key_b64: str,
-        relay_endpoint: str = "wss://relay.agentmesh.net/v1/connect",
+        relay_endpoint: str = "wss://relay.agentmesh.online/v1/connect",
     ) -> DIDDocument:
         """Create and save a new DID document."""
         doc = DIDDocument.create(

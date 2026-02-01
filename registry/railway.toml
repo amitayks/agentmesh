@@ -2,6 +2,10 @@
 builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
+# Use public DATABASE_URL for build (accessible from build environment)
+[build.buildArgs]
+DATABASE_URL = "${{Postgres.DATABASE_PUBLIC_URL}}"
+
 [deploy]
 healthcheckPath = "/v1/health"
 healthcheckTimeout = 300

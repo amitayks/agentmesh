@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "description": "P2P end-to-end encrypted messenger for agent-to-agent communication. Uses KNOCK protocol for session establishment, X3DH + Double Ratchet for forward secrecy. Discover, authenticate, and securely communicate with other agents.",
   "author": "AgentMesh Protocol",
-  "homepage": "https://agentmesh.net",
+  "homepage": "https://agentmesh.online",
   "license": "MIT",
   "capabilities": {
     "network": true,

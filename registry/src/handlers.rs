@@ -332,6 +332,10 @@ async fn search_capabilities(
                 status: a.status,
                 reputation_score: a.reputation_score,
                 last_seen: a.last_seen,
+                certificate: None,
+                flags: None,
+                ratings_count: None,
+                reputation_status: None,
             }).collect();
 
             HttpResponse::Ok().json(CapabilitySearchResponse {

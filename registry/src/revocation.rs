@@ -344,14 +344,17 @@ async fn get_agent_by_amid(pool: &PgPool, amid: &str) -> Result<Option<AgentReco
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| AgentRecord {
-        signing_public_key: r.signing_public_key,
-        organization_id: r.organization_id,
-    }))
+    Ok(match row {
+        Some(r) => Some(AgentRecord {
+            signing_public_key: r.signing_public_key,
+            organization_id: r.organization_id,
+        }),
+        None => None,
+    })
 }
 
 async fn is_org_admin(pool: &PgPool, org_id: Uuid, amid: &str) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query!(
+    let result = sqlx::query!(
         r#"SELECT 1 as exists FROM organizations WHERE id = $1 AND admin_amid = $2"#,
         org_id,
         amid
@@ -359,7 +362,7 @@ async fn is_org_admin(pool: &PgPool, org_id: Uuid, amid: &str) -> Result<bool, s
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.is_some())
+    Ok(matches!(result, Some(_)))
 }
 
 async fn get_revocation(pool: &PgPool, amid: &str) -> Result<Option<RevocationEntry>, sqlx::Error> {
@@ -374,14 +377,17 @@ async fn get_revocation(pool: &PgPool, amid: &str) -> Result<Option<RevocationEn
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| RevocationEntry {
-        id: r.id,
-        amid: r.amid,
-        reason: r.reason,
-        revoked_by: r.revoked_by,
-        revoked_at: r.revoked_at,
-        notes: r.notes,
-    }))
+    Ok(match row {
+        Some(r) => Some(RevocationEntry {
+            id: r.id,
+            amid: r.amid,
+            reason: r.reason,
+            revoked_by: r.revoked_by,
+            revoked_at: r.revoked_at,
+            notes: r.notes,
+        }),
+        None => None,
+    })
 }
 
 async fn create_revocation(
@@ -413,10 +419,10 @@ async fn get_all_revocations(
     limit: i64,
     offset: i64,
 ) -> Result<(Vec<RevocationEntry>, i64), sqlx::Error> {
-    let count: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM revocations")
+    let count_result: Option<i64> = sqlx::query_scalar!("SELECT COUNT(*) FROM revocations")
         .fetch_one(pool)
-        .await?
-        .unwrap_or(0);
+        .await?;
+    let count = count_result.unwrap_or(0);
 
     let rows = sqlx::query!(
         r#"
@@ -431,14 +437,17 @@ async fn get_all_revocations(
     .fetch_all(pool)
     .await?;
 
-    let entries: Vec<RevocationEntry> = rows.into_iter().map(|r| RevocationEntry {
-        id: r.id,
-        amid: r.amid,
-        reason: r.reason,
-        revoked_by: r.revoked_by,
-        revoked_at: r.revoked_at,
-        notes: r.notes,
-    }).collect();
+    let mut entries = Vec::new();
+    for r in rows {
+        entries.push(RevocationEntry {
+            id: r.id,
+            amid: r.amid,
+            reason: r.reason,
+            revoked_by: r.revoked_by,
+            revoked_at: r.revoked_at,
+            notes: r.notes,
+        });
+    }
 
     Ok((entries, count))
 }

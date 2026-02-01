@@ -1,0 +1,12 @@
+# Ignore Rust build artifacts
+target/
+
+# Git files
+.git/
+.gitignore
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo

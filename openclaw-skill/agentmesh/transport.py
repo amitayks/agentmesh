@@ -43,7 +43,7 @@ class RelayTransport:
     def __init__(
         self,
         identity: Identity,
-        relay_url: str = "wss://relay.agentmesh.net/v1/connect",
+        relay_url: str = "wss://relay.agentmesh.online/v1/connect",
         p2p_capable: bool = True,
     ):
         self.identity = identity

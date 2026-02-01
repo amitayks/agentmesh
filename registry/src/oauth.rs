@@ -25,7 +25,7 @@ impl OAuthConfig {
             google_client_id: std::env::var("GOOGLE_CLIENT_ID").ok(),
             google_client_secret: std::env::var("GOOGLE_CLIENT_SECRET").ok(),
             callback_base_url: std::env::var("OAUTH_CALLBACK_BASE_URL")
-                .unwrap_or_else(|_| "https://api.agentmesh.net".to_string()),
+                .unwrap_or_else(|_| "https://agentmesh.online".to_string()),
         }
     }
 }
@@ -140,6 +140,66 @@ struct GoogleUserInfo {
     email: Option<String>,
     email_verified: Option<bool>,
     name: Option<String>,
+}
+
+/// Validated user info returned from token validation
+#[derive(Debug, Clone)]
+pub struct ValidatedUser {
+    pub provider: String,
+    pub provider_id: String,
+    pub email: Option<String>,
+    pub name: Option<String>,
+}
+
+/// Validate an OAuth access token and return user info
+/// This validates tokens that were previously obtained through the OAuth flow
+pub async fn validate_oauth_token(token: &str) -> Result<ValidatedUser, String> {
+    // Try GitHub first
+    let client = reqwest::Client::new();
+
+    // Try GitHub token
+    let github_result = client
+        .get("https://api.github.com/user")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("User-Agent", "AgentMesh-Registry/0.2")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await;
+
+    if let Ok(response) = github_result {
+        if response.status().is_success() {
+            if let Ok(user) = response.json::<GitHubUser>().await {
+                return Ok(ValidatedUser {
+                    provider: "github".to_string(),
+                    provider_id: user.id.to_string(),
+                    email: user.email,
+                    name: user.name.or(Some(user.login)),
+                });
+            }
+        }
+    }
+
+    // Try Google token
+    let google_result = client
+        .get("https://www.googleapis.com/oauth2/v3/userinfo")
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await;
+
+    if let Ok(response) = google_result {
+        if response.status().is_success() {
+            if let Ok(user) = response.json::<GoogleUserInfo>().await {
+                return Ok(ValidatedUser {
+                    provider: "google".to_string(),
+                    provider_id: user.sub,
+                    email: user.email,
+                    name: user.name,
+                });
+            }
+        }
+    }
+
+    Err("Invalid or expired OAuth token".to_string())
 }
 
 /// Google token response
@@ -527,7 +587,7 @@ async fn get_oauth_state(
     pool: &PgPool,
     state: &str,
 ) -> Result<Option<OAuthState>, sqlx::Error> {
-    let row = sqlx::query!(
+    let result = sqlx::query!(
         r#"
         SELECT state, amid, provider, created_at, expires_at
         FROM oauth_states
@@ -538,13 +598,16 @@ async fn get_oauth_state(
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.map(|r| OAuthState {
-        state: r.state,
-        amid: r.amid,
-        provider: r.provider,
-        created_at: r.created_at,
-        expires_at: r.expires_at,
-    }))
+    Ok(match result {
+        Some(r) => Some(OAuthState {
+            state: r.state,
+            amid: r.amid,
+            provider: r.provider,
+            created_at: r.created_at,
+            expires_at: r.expires_at,
+        }),
+        None => None,
+    })
 }
 
 /// Delete OAuth state from database

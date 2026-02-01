@@ -38,11 +38,11 @@ DEFAULT_POLICY = {
 # Production endpoints (Railway)
 PRODUCTION_RELAY_URL = os.environ.get(
     "AGENTMESH_RELAY_URL",
-    "wss://relay.agentmesh.net/v1/connect"
+    "wss://relay.agentmesh.online/v1/connect"
 )
 PRODUCTION_REGISTRY_URL = os.environ.get(
     "AGENTMESH_REGISTRY_URL",
-    "https://api.agentmesh.net/v1"
+    "https://agentmesh.online/v1"
 )
 
 
@@ -162,9 +162,9 @@ class Policy:
 # Can be overridden via AGENTMESH_DHT_BOOTSTRAP environment variable
 # Format: "host1:port1,host2:port2,host3:port3"
 DEFAULT_DHT_BOOTSTRAP_NODES = [
-    ("bootstrap1.agentmesh.net", 8468),
-    ("bootstrap2.agentmesh.net", 8468),
-    ("bootstrap3.agentmesh.net", 8468),
+    ("bootstrap1.agentmesh.online", 8468),
+    ("bootstrap2.agentmesh.online", 8468),
+    ("bootstrap3.agentmesh.online", 8468),
 ]
 
 # Parse DHT bootstrap nodes from environment variable

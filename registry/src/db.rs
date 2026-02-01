@@ -208,12 +208,6 @@ pub async fn get_detailed_stats(pool: &PgPool) -> Result<serde_json::Value> {
     }))
 }
 
-impl Default for (u64, u64) {
-    fn default() -> Self {
-        (0, 0)
-    }
-}
-
 // ============== Prekey Functions ==============
 
 /// Store or update signed prekey

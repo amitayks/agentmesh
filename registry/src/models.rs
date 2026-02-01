@@ -77,7 +77,7 @@ pub struct RegisterRequest {
 }
 
 fn default_relay() -> String {
-    "wss://relay.agentmesh.net/v1/connect".to_string()
+    "wss://relay.agentmesh.online/v1/connect".to_string()
 }
 
 /// Response to registration

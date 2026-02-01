@@ -13,6 +13,12 @@ COPY Cargo.toml Cargo.lock* ./
 
 # Create dummy source to cache dependencies
 RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+# Pin problematic crates to versions compatible with Rust 1.83 (avoid edition2024)
+RUN cargo update base64ct --precise 1.6.0 2>/dev/null || true
+RUN cargo update time --precise 0.3.36 2>/dev/null || true
+RUN cargo update home --precise 0.5.9 2>/dev/null || true
+
 RUN cargo build --release
 RUN rm -rf src
 

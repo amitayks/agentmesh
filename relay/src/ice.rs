@@ -59,7 +59,7 @@ impl IceManager {
             stun_servers: vec![
                 "stun:stun.l.google.com:19302".to_string(),
                 "stun:stun1.l.google.com:19302".to_string(),
-                "stun:stun.agentmesh.net:3478".to_string(),
+                "stun:stun.agentmesh.online:3478".to_string(),
             ],
             session_timeout: Duration::seconds(30),
         }

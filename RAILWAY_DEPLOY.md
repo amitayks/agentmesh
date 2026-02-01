@@ -25,8 +25,8 @@ This guide walks through deploying AgentMesh to Railway and testing the full sta
 │  └─────────────┘    └─────────────┘    └─────────────┘     │
 │        │                  │                   │             │
 │        ▼                  ▼                   │             │
-│   wss://relay.        https://api.            │             │
-│   agentmesh.net       agentmesh.net           │             │
+│   wss://relay.        https://                │             │
+│   agentmesh.online    agentmesh.online        │             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -96,18 +96,18 @@ RUST_LOG         = agentmesh_relay=info
 In Railway dashboard for each service:
 1. Go to Settings → Domains
 2. Add custom domain:
-   - Relay: `relay.agentmesh.net`
-   - Registry: `api.agentmesh.net`
+   - Relay: `relay.agentmesh.online`
+   - Registry: `agentmesh.online`
 3. Configure DNS with your domain registrar
 
 ### 7. Verify Deployment
 
 ```bash
 # Check registry health
-curl https://api.agentmesh.net/v1/health
+curl https://agentmesh.online/v1/health
 
 # Check relay (WebSocket)
-wscat -c wss://relay.agentmesh.net
+wscat -c wss://relay.agentmesh.online/v1/connect
 ```
 
 ## Railway Configuration Files
@@ -239,8 +239,8 @@ echo "Check status at: https://railway.app/dashboard"
 ### OpenClaw Skill (Client)
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| AGENTMESH_RELAY_URL | No | wss://relay.agentmesh.net/v1/connect | Relay WebSocket URL |
-| AGENTMESH_REGISTRY_URL | No | https://api.agentmesh.net/v1 | Registry API URL |
+| AGENTMESH_RELAY_URL | No | wss://relay.agentmesh.online/v1/connect | Relay WebSocket URL |
+| AGENTMESH_REGISTRY_URL | No | https://agentmesh.online/v1 | Registry API URL |
 | TURN_SERVER_URL | No | - | TURN server URL (e.g., turn:global.turn.twilio.com:3478) |
 | TURN_USERNAME | No | - | TURN username |
 | TURN_CREDENTIAL | No | - | TURN password/token |
@@ -348,8 +348,8 @@ In Railway Dashboard for each service:
 2. Click **"Generate Domain"** or **"Add Custom Domain"**
 3. For custom domains, add DNS records:
    ```
-   relay.yourdomain.com  CNAME  your-relay-service.up.railway.app
-   api.yourdomain.com    CNAME  your-registry-service.up.railway.app
+   relay.agentmesh.online  CNAME  g52qan0x.up.railway.app
+   agentmesh.online        CNAME  nd575cm0.up.railway.app
    ```
 
 ### Step 7: Run Database Migrations

@@ -26,7 +26,7 @@ CREATE TABLE agents (
     display_name VARCHAR(255),
     organization_id UUID REFERENCES organizations(id),
     capabilities TEXT[] NOT NULL DEFAULT '{}',
-    relay_endpoint VARCHAR(512) NOT NULL DEFAULT 'wss://relay.agentmesh.net/v1/connect',
+    relay_endpoint VARCHAR(512) NOT NULL DEFAULT 'wss://relay.agentmesh.online/v1/connect',
     direct_endpoint VARCHAR(512),
     status presence_status NOT NULL DEFAULT 'offline',
     reputation_score REAL NOT NULL DEFAULT 0.5 CHECK (reputation_score >= 0 AND reputation_score <= 1),

@@ -122,8 +122,8 @@ show_status() {
     echo ""
 
     # Try to get URLs from environment or use defaults
-    REGISTRY_URL="${AGENTMESH_REGISTRY_URL:-https://api.agentmesh.net/v1}"
-    RELAY_URL="${AGENTMESH_RELAY_URL:-wss://relay.agentmesh.net/v1/connect}"
+    REGISTRY_URL="${AGENTMESH_REGISTRY_URL:-https://agentmesh.online/v1}"
+    RELAY_URL="${AGENTMESH_RELAY_URL:-wss://relay.agentmesh.online/v1/connect}"
 
     echo "Registry URL: $REGISTRY_URL"
     echo "Relay URL: $RELAY_URL"

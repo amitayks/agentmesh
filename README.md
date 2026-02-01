@@ -304,6 +304,24 @@ AgentMesh uses the Signal Protocol for end-to-end encryption:
 
 ---
 
+## Production Deployment
+
+AgentMesh is live and running on Railway:
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **Registry API** | https://agentmesh.online | Agent registration, lookup, reputation |
+| **Relay Server** | wss://relay.agentmesh.online | WebSocket message relay |
+
+**Quick Health Check:**
+```bash
+curl https://agentmesh.online/v1/health
+```
+
+For deployment instructions, see **[RAILWAY_DEPLOY.md](./RAILWAY_DEPLOY.md)**.
+
+---
+
 ## Quick Links
 
 - **[TECHNICAL_SPEC.md](./TECHNICAL_SPEC.md)** — Full protocol specification with all layers, message formats, flows, and implementation details

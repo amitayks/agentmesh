@@ -33,11 +33,11 @@ logger = logging.getLogger(__name__)
 # Production endpoints (override via environment)
 RELAY_URL = os.environ.get(
     "AGENTMESH_RELAY_URL",
-    "wss://relay.agentmesh.net/v1/connect"
+    "wss://relay.agentmesh.online/v1/connect"
 )
 REGISTRY_URL = os.environ.get(
     "AGENTMESH_REGISTRY_URL",
-    "https://api.agentmesh.net/v1"
+    "https://agentmesh.online/v1"
 )
 
 # Test configuration

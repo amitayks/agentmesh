@@ -244,7 +244,7 @@ pub async fn handle_connection(
         }
         Err(e) => {
             warn!("Authentication failed from {}: {}", peer_addr, e);
-            return Err(e.into());
+            return Err(anyhow::anyhow!(e));
         }
     };
 

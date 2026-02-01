@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-healthcheckPath = "/"
-healthcheckTimeout = 300
+# No HTTP healthcheck - relay is WebSocket only
+# Docker HEALTHCHECK (nc -z localhost 8765) handles this
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
