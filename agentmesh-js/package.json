@@ -1,6 +1,6 @@
 {
   "name": "@agentmesh/sdk",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "AgentMesh SDK - P2P Encrypted Messenger for AI Agents",
   "type": "module",
   "main": "./dist/index.cjs",

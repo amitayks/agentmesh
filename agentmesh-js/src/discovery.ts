@@ -469,24 +469,29 @@ export class RegistryClient {
 
   /**
    * Parse agent info from API response.
+   * Handles both camelCase and snake_case field names for compatibility.
    */
   private parseAgentInfo(data: Record<string, unknown>): AgentInfo {
-    const lastSeenStr = data.last_seen as string;
+    // Helper to get value from either camelCase or snake_case key
+    const get = <T>(camel: string, snake: string): T | undefined =>
+      (data[camel] ?? data[snake]) as T | undefined;
+
+    const lastSeenStr = get<string>('lastSeen', 'last_seen') ?? new Date().toISOString();
     // Handle 'Z' suffix for UTC timezone
     const lastSeen = new Date(lastSeenStr.endsWith('Z') ? lastSeenStr : lastSeenStr.replace('Z', '+00:00'));
 
     return {
       amid: data.amid as string,
       tier: data.tier as Tier,
-      displayName: data.display_name as string | undefined,
+      displayName: get<string>('displayName', 'display_name'),
       organization: data.organization as string | undefined,
-      signingPublicKey: data.signing_public_key as string,
-      exchangePublicKey: data.exchange_public_key as string,
+      signingPublicKey: get<string>('signingPublicKey', 'signing_public_key') ?? '',
+      exchangePublicKey: get<string>('exchangePublicKey', 'exchange_public_key') ?? '',
       capabilities: (data.capabilities as string[]) ?? [],
-      relayEndpoint: data.relay_endpoint as string,
-      directEndpoint: data.direct_endpoint as string | undefined,
+      relayEndpoint: get<string>('relayEndpoint', 'relay_endpoint') ?? '',
+      directEndpoint: get<string>('directEndpoint', 'direct_endpoint'),
       status: data.status as string,
-      reputationScore: (data.reputation_score as number) ?? 0.5,
+      reputationScore: get<number>('reputationScore', 'reputation_score') ?? 0.5,
       lastSeen,
     };
   }

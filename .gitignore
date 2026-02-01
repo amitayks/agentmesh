@@ -48,3 +48,16 @@ htmlcov/
 # Local development
 *.local
 working-desk.md
+
+# Test files and examples (not part of core project)
+examples/
+.test_agents/
+
+# OpenClaw Worker (separate Cloudflare Worker project)
+openclaw-worker/
+
+# OpenClaw Python Skill (separate project)
+openclaw-skill/
+
+# OpenSpec change tracking (working changes)
+openspec/changes/
