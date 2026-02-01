@@ -71,8 +71,8 @@ pub struct RegisterRequest {
     /// For Tier 1 verification
     #[serde(default)]
     pub verification_token: Option<String>,
-    /// Signature over the request timestamp
-    pub timestamp: DateTime<Utc>,
+    /// Signature over the request timestamp (ISO format string)
+    pub timestamp: String,
     pub signature: String,
 }
 

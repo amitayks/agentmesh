@@ -23,6 +23,9 @@ pub enum AuthError {
 
     #[error("AMID mismatch")]
     AmidMismatch,
+
+    #[error("Invalid timestamp format")]
+    InvalidTimestamp,
 }
 
 /// Derive AMID from public key
@@ -51,13 +54,23 @@ fn strip_key_prefix(key: &str) -> &str {
 }
 
 /// Verify that an agent owns the AMID they claim by verifying their signature
-/// The message signed is the ISO timestamp string
+/// The message signed is the ISO timestamp string (passed as-is to preserve format)
 pub fn verify_registration_signature(
     amid: &str,
     public_key_b64: &str,
     signature_b64: &str,
-    timestamp: DateTime<Utc>,
+    timestamp_str: &str,
 ) -> Result<(), AuthError> {
+    // Parse timestamp to validate it's a valid ISO timestamp
+    let timestamp = DateTime::parse_from_rfc3339(timestamp_str)
+        .or_else(|_| {
+            // Try parsing ISO format with Z suffix (JavaScript's toISOString format)
+            DateTime::parse_from_str(timestamp_str, "%Y-%m-%dT%H:%M:%S%.fZ")
+                .map(|dt| dt.with_timezone(&Utc).fixed_offset())
+        })
+        .map_err(|_| AuthError::InvalidTimestamp)?
+        .with_timezone(&Utc);
+
     // Check timestamp is within acceptable window (5 minutes)
     let now = Utc::now();
     let age = now.signed_duration_since(timestamp);
@@ -100,8 +113,9 @@ pub fn verify_registration_signature(
 
     let signature = Signature::from_bytes(&signature_array);
 
-    // Message is the timestamp in ISO format
-    let message = timestamp.to_rfc3339();
+    // Message is the ORIGINAL timestamp string (not reformatted!)
+    // This is critical for signature verification - the exact bytes that were signed
+    let message = timestamp_str;
 
     // Verify signature
     verifying_key
@@ -190,10 +204,9 @@ mod tests {
         let public_key = signing_key.verifying_key();
 
         let amid = derive_amid(&public_key.to_bytes());
-        let timestamp = Utc::now();
-        let message = timestamp.to_rfc3339();
+        let timestamp_str = Utc::now().to_rfc3339();
 
-        let signature = signing_key.sign(message.as_bytes());
+        let signature = signing_key.sign(timestamp_str.as_bytes());
 
         let public_key_b64 = BASE64.encode(public_key.to_bytes());
         let signature_b64 = BASE64.encode(signature.to_bytes());
@@ -202,7 +215,7 @@ mod tests {
             &amid,
             &public_key_b64,
             &signature_b64,
-            timestamp,
+            &timestamp_str,
         );
 
         assert!(result.is_ok());
@@ -215,10 +228,9 @@ mod tests {
         let public_key = signing_key.verifying_key();
 
         let amid = derive_amid(&public_key.to_bytes());
-        let timestamp = Utc::now();
-        let message = timestamp.to_rfc3339();
+        let timestamp_str = Utc::now().to_rfc3339();
 
-        let signature = signing_key.sign(message.as_bytes());
+        let signature = signing_key.sign(timestamp_str.as_bytes());
 
         // Use prefixed key format
         let public_key_b64 = format!("ed25519:{}", BASE64.encode(public_key.to_bytes()));
@@ -228,9 +240,37 @@ mod tests {
             &amid,
             &public_key_b64,
             &signature_b64,
-            timestamp,
+            &timestamp_str,
         );
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_javascript_timestamp_format() {
+        // Test that JavaScript's toISOString format works
+        let mut csprng = OsRng;
+        let signing_key = SigningKey::generate(&mut csprng);
+        let public_key = signing_key.verifying_key();
+
+        let amid = derive_amid(&public_key.to_bytes());
+        // JavaScript toISOString format: 2026-02-01T16:25:10.555Z
+        let timestamp_str = "2026-02-01T16:25:10.555Z";
+
+        let signature = signing_key.sign(timestamp_str.as_bytes());
+
+        let public_key_b64 = BASE64.encode(public_key.to_bytes());
+        let signature_b64 = BASE64.encode(signature.to_bytes());
+
+        // This should fail on timestamp validation (too old) but not on format parsing
+        let result = verify_registration_signature(
+            &amid,
+            &public_key_b64,
+            &signature_b64,
+            timestamp_str,
+        );
+
+        // We expect TimestampTooOld since we're using a fixed old timestamp
+        assert!(matches!(result, Err(AuthError::TimestampTooOld)));
     }
 }

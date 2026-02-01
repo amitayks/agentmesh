@@ -155,7 +155,7 @@ async fn register_agent(
         &req.amid,
         &req.signing_public_key,
         &req.signature,
-        req.timestamp,
+        &req.timestamp,
     ) {
         warn!("Signature verification failed for {}: {:?}", req.amid, auth_err);
         return HttpResponse::Unauthorized().json(RegisterResponse {
