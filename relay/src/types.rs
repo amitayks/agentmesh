@@ -13,6 +13,8 @@ pub enum RelayMessage {
     Connect {
         protocol: String,
         amid: Amid,
+        /// Base64-encoded Ed25519 public key (required for signature verification)
+        public_key: String,
         signature: String,
         timestamp: DateTime<Utc>,
         #[serde(default)]
@@ -115,6 +117,8 @@ pub enum MessageType {
     Message,
     Close,
     Status,
+    /// Optimistic message sent to allowlisted contacts (skip KNOCK, use cached session)
+    OptimisticMessage,
 }
 
 /// Presence status

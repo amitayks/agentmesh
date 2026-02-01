@@ -22,23 +22,51 @@ Usage:
     )
 """
 
-__version__ = "0.1.0"
-__protocol_version__ = "agentmesh/0.1"
+__version__ = "0.2.0"
+__protocol_version__ = "agentmesh/0.2"
 
 from .client import AgentMeshClient
 from .identity import Identity
 from .session import Session, KnockMessage
-from .transport import RelayTransport, P2PTransport
+from .transport import RelayTransport, P2PTransport, create_p2p_transport
 from .discovery import RegistryClient
-from .config import Config
+from .config import Config, Policy
+from .dht import DHTClient, DHTValue, create_dht_client
+from .did import DIDDocument, DIDManager, DIDResolver
+from .schemas import (
+    SchemaValidator,
+    SequenceTracker,
+    CapabilityNegotiator,
+    CapabilityNegotiationRequest,
+    CapabilityNegotiationResponse,
+)
 
 __all__ = [
+    # Core
     "AgentMeshClient",
     "Identity",
     "Session",
     "KnockMessage",
+    # Transport
     "RelayTransport",
     "P2PTransport",
+    "create_p2p_transport",
+    # Discovery
     "RegistryClient",
+    "DHTClient",
+    "DHTValue",
+    "create_dht_client",
+    # Config
     "Config",
+    "Policy",
+    # DID
+    "DIDDocument",
+    "DIDManager",
+    "DIDResolver",
+    # Schemas
+    "SchemaValidator",
+    "SequenceTracker",
+    "CapabilityNegotiator",
+    "CapabilityNegotiationRequest",
+    "CapabilityNegotiationResponse",
 ]

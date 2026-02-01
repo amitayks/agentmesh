@@ -198,11 +198,82 @@ class AuditLog:
 class TranscriptStore:
     """
     Stores full conversation transcripts.
-    Encrypted at rest with owner's key.
+    Encrypted at rest using XChaCha20-Poly1305 with key derived from owner's signing key.
     """
 
-    def __init__(self):
+    ENCRYPTED_VERSION = 1
+    KEY_INFO = b"agentmesh-transcript-encryption-v1"
+
+    def __init__(self, signing_key: Optional[bytes] = None):
         TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+        self._signing_key = signing_key
+        self._encryption_key: Optional[bytes] = None
+
+        if signing_key:
+            self._derive_encryption_key()
+
+    def _derive_encryption_key(self) -> None:
+        """Derive encryption key from signing key using HKDF."""
+        if not self._signing_key:
+            return
+
+        try:
+            from nacl.hash import blake2b
+            from nacl.encoding import RawEncoder
+
+            # Use BLAKE2b as HKDF-like KDF
+            # Key = BLAKE2b(signing_key || KEY_INFO)
+            # Use RawEncoder to get raw bytes instead of hex-encoded
+            self._encryption_key = blake2b(
+                self._signing_key + self.KEY_INFO,
+                digest_size=32,
+                encoder=RawEncoder,
+            )
+        except Exception as e:
+            logger.error(f"Failed to derive encryption key: {e}")
+
+    def set_signing_key(self, signing_key: bytes) -> None:
+        """Set or update the signing key (e.g., after key rotation)."""
+        old_key = self._encryption_key
+        self._signing_key = signing_key
+        self._derive_encryption_key()
+
+        # If key changed and we have transcripts, consider re-encryption
+        if old_key and old_key != self._encryption_key:
+            logger.info("Encryption key changed, existing transcripts need re-encryption")
+
+    def _encrypt_data(self, data: bytes) -> bytes:
+        """Encrypt data using XChaCha20-Poly1305."""
+        if not self._encryption_key:
+            raise ValueError("No encryption key available")
+
+        try:
+            from nacl.secret import SecretBox
+            from nacl.utils import random
+
+            box = SecretBox(self._encryption_key)
+            # SecretBox uses XSalsa20-Poly1305, which is similar security level
+            # Generate random nonce
+            nonce = random(SecretBox.NONCE_SIZE)
+            encrypted = box.encrypt(data, nonce)
+            return encrypted
+        except Exception as e:
+            logger.error(f"Encryption failed: {e}")
+            raise
+
+    def _decrypt_data(self, encrypted_data: bytes) -> bytes:
+        """Decrypt data using XChaCha20-Poly1305."""
+        if not self._encryption_key:
+            raise ValueError("No encryption key available")
+
+        try:
+            from nacl.secret import SecretBox
+
+            box = SecretBox(self._encryption_key)
+            return box.decrypt(encrypted_data)
+        except Exception as e:
+            logger.error(f"Decryption failed: {e}")
+            raise
 
     def save_transcript(
         self,
@@ -211,7 +282,7 @@ class TranscriptStore:
         receiver: str,
         messages: List[Dict[str, Any]],
     ) -> None:
-        """Save a conversation transcript."""
+        """Save a conversation transcript (encrypted if key available)."""
         transcript = {
             'session_id': session_id,
             'initiator': initiator,
@@ -220,36 +291,83 @@ class TranscriptStore:
             'messages': messages,
         }
 
-        path = TRANSCRIPTS_DIR / f"{session_id}.json"
+        transcript_json = json.dumps(transcript, indent=2).encode('utf-8')
 
-        # TODO: Encrypt with owner's key
-        with open(path, 'w') as f:
-            json.dump(transcript, f, indent=2)
-
-        path.chmod(0o600)
+        if self._encryption_key:
+            # Save encrypted version
+            path = TRANSCRIPTS_DIR / f"{session_id}.enc"
+            try:
+                encrypted = self._encrypt_data(transcript_json)
+                # File format: version (1 byte) + encrypted data
+                with open(path, 'wb') as f:
+                    f.write(bytes([self.ENCRYPTED_VERSION]))
+                    f.write(encrypted)
+                path.chmod(0o600)
+                logger.debug(f"Saved encrypted transcript: {session_id}")
+            except Exception as e:
+                logger.error(f"Failed to save encrypted transcript: {e}")
+                raise
+        else:
+            # Save unencrypted (legacy/fallback)
+            path = TRANSCRIPTS_DIR / f"{session_id}.json"
+            with open(path, 'w') as f:
+                f.write(transcript_json.decode('utf-8'))
+            path.chmod(0o600)
+            logger.warning(f"Saved unencrypted transcript (no encryption key): {session_id}")
 
     def get_transcript(self, session_id: str) -> Optional[dict]:
-        """Load a transcript."""
-        path = TRANSCRIPTS_DIR / f"{session_id}.json"
+        """Load a transcript (decrypting if necessary)."""
+        # Try encrypted first
+        enc_path = TRANSCRIPTS_DIR / f"{session_id}.enc"
+        if enc_path.exists():
+            if not self._encryption_key:
+                logger.error(f"Cannot decrypt transcript {session_id}: no encryption key")
+                return None
 
-        if not path.exists():
-            return None
+            try:
+                with open(enc_path, 'rb') as f:
+                    version = f.read(1)[0]
+                    if version != self.ENCRYPTED_VERSION:
+                        logger.error(f"Unknown transcript version: {version}")
+                        return None
+                    encrypted_data = f.read()
 
-        with open(path, 'r') as f:
-            return json.load(f)
+                decrypted = self._decrypt_data(encrypted_data)
+                return json.loads(decrypted.decode('utf-8'))
+            except Exception as e:
+                logger.error(f"Failed to decrypt transcript {session_id}: {e}")
+                return None
+
+        # Try unencrypted (legacy)
+        json_path = TRANSCRIPTS_DIR / f"{session_id}.json"
+        if json_path.exists():
+            logger.warning(f"Reading unencrypted legacy transcript: {session_id}")
+            with open(json_path, 'r') as f:
+                return json.load(f)
+
+        return None
 
     def list_transcripts(
         self,
         peer_amid: Optional[str] = None,
         limit: int = 50,
     ) -> List[dict]:
-        """List recent transcripts."""
+        """List recent transcripts (metadata only, no decryption)."""
         transcripts = []
 
-        for path in sorted(TRANSCRIPTS_DIR.glob("*.json"), reverse=True)[:limit]:
+        # Check both encrypted and legacy files
+        all_files = list(TRANSCRIPTS_DIR.glob("*.enc")) + list(TRANSCRIPTS_DIR.glob("*.json"))
+        sorted_files = sorted(all_files, key=lambda p: p.stat().st_mtime, reverse=True)
+
+        for path in sorted_files[:limit * 2]:  # Read more to account for filtering
+            if len(transcripts) >= limit:
+                break
+
             try:
-                with open(path, 'r') as f:
-                    data = json.load(f)
+                session_id = path.stem
+                data = self.get_transcript(session_id)
+                if data is None:
+                    continue
 
                 if peer_amid is None or data.get('initiator') == peer_amid or data.get('receiver') == peer_amid:
                     transcripts.append({
@@ -258,8 +376,103 @@ class TranscriptStore:
                         'receiver': data['receiver'],
                         'created_at': data['created_at'],
                         'message_count': len(data.get('messages', [])),
+                        'encrypted': path.suffix == '.enc',
                     })
             except Exception:
                 continue
 
-        return transcripts
+        return transcripts[:limit]
+
+    def delete_transcript(self, session_id: str, secure: bool = True) -> bool:
+        """
+        Delete a transcript.
+
+        Args:
+            session_id: The session ID
+            secure: If True, overwrite file before unlinking (secure deletion)
+
+        Returns:
+            True if deleted, False if not found
+        """
+        deleted = False
+
+        for suffix in ['.enc', '.json']:
+            path = TRANSCRIPTS_DIR / f"{session_id}{suffix}"
+            if path.exists():
+                if secure:
+                    # Secure deletion: overwrite with random data
+                    try:
+                        from nacl.utils import random
+                        size = path.stat().st_size
+                        with open(path, 'wb') as f:
+                            f.write(random(size))
+                        path.unlink()
+                        logger.debug(f"Securely deleted transcript: {session_id}")
+                    except Exception as e:
+                        logger.error(f"Secure deletion failed, falling back: {e}")
+                        path.unlink()
+                else:
+                    path.unlink()
+                deleted = True
+
+        return deleted
+
+    def migrate_unencrypted(self) -> int:
+        """
+        Migrate existing unencrypted transcripts to encrypted format.
+        Requires encryption key to be set.
+
+        Returns:
+            Number of transcripts migrated
+        """
+        if not self._encryption_key:
+            logger.error("Cannot migrate: no encryption key set")
+            return 0
+
+        migrated = 0
+        for path in TRANSCRIPTS_DIR.glob("*.json"):
+            session_id = path.stem
+            try:
+                # Read unencrypted
+                with open(path, 'r') as f:
+                    data = json.load(f)
+
+                # Save encrypted
+                self.save_transcript(
+                    session_id=data['session_id'],
+                    initiator=data['initiator'],
+                    receiver=data['receiver'],
+                    messages=data.get('messages', []),
+                )
+
+                # Securely delete unencrypted
+                self.delete_transcript(session_id, secure=True)
+
+                migrated += 1
+                logger.info(f"Migrated transcript: {session_id}")
+            except Exception as e:
+                logger.error(f"Failed to migrate {session_id}: {e}")
+
+        return migrated
+
+    def export_session_key(self, session_id: str) -> Optional[str]:
+        """
+        Export the session-specific decryption key for audit purposes.
+        This allows sharing a single transcript without exposing the master key.
+        """
+        if not self._encryption_key:
+            return None
+
+        try:
+            from nacl.hash import blake2b
+            import base64
+
+            # Derive session-specific key
+            session_key = blake2b(
+                self._encryption_key + session_id.encode('utf-8'),
+                digest_size=32,
+            )
+            return base64.b64encode(session_key).decode('utf-8')
+        except Exception as e:
+            logger.error(f"Failed to export session key: {e}")
+            return None

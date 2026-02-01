@@ -27,6 +27,17 @@ pub enum AuthError {
     AmidMismatch,
 }
 
+/// Strip key type prefix if present (e.g., "ed25519:" or "x25519:")
+fn strip_key_prefix(key: &str) -> &str {
+    if let Some(stripped) = key.strip_prefix("ed25519:") {
+        stripped
+    } else if let Some(stripped) = key.strip_prefix("x25519:") {
+        stripped
+    } else {
+        key
+    }
+}
+
 /// Verify that an agent owns the AMID they claim
 /// The signature is over the timestamp, proving they have the private key
 pub fn verify_connection_signature(
@@ -47,8 +58,11 @@ pub fn verify_connection_signature(
         return Err(AuthError::TimestampInFuture);
     }
 
+    // Strip key prefix if present (backwards compatible)
+    let key_b64 = strip_key_prefix(public_key_b64);
+
     // Decode public key
-    let public_key_bytes = BASE64.decode(public_key_b64)
+    let public_key_bytes = BASE64.decode(key_b64)
         .map_err(|_| AuthError::InvalidPublicKeyFormat)?;
 
     let public_key_array: [u8; 32] = public_key_bytes
@@ -105,8 +119,11 @@ pub fn verify_signature(
     data: &[u8],
     signature_b64: &str,
 ) -> Result<(), AuthError> {
+    // Strip key prefix if present
+    let key_b64 = strip_key_prefix(public_key_b64);
+
     // Decode public key
-    let public_key_bytes = BASE64.decode(public_key_b64)
+    let public_key_bytes = BASE64.decode(key_b64)
         .map_err(|_| AuthError::InvalidPublicKeyFormat)?;
 
     let public_key_array: [u8; 32] = public_key_bytes

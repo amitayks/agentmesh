@@ -107,6 +107,18 @@ pub struct AgentLookup {
     pub status: PresenceStatus,
     pub reputation_score: f32,
     pub last_seen: DateTime<Utc>,
+    /// PEM-encoded agent certificate (for verified tier)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub certificate: Option<String>,
+    /// Reputation flags (e.g., "rapid_reputation_increase")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub flags: Option<Vec<String>>,
+    /// Number of ratings received
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ratings_count: Option<u32>,
+    /// Reputation status: "rated" or "unrated"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reputation_status: Option<String>,
 }
 
 /// Capability search request
@@ -210,4 +222,44 @@ pub struct HealthResponse {
     pub version: String,
     pub agents_registered: u64,
     pub agents_online: u64,
+}
+
+/// X3DH Prekey bundle for offline key exchange
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrekeyBundle {
+    pub identity_key: String,
+    pub signed_prekey: String,
+    pub signed_prekey_signature: String,
+    pub signed_prekey_id: i32,
+    pub one_time_prekeys: Vec<OneTimePrekey>,
+    pub uploaded_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OneTimePrekey {
+    pub id: i32,
+    pub key: String,
+}
+
+/// Request to upload prekeys
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadPrekeysRequest {
+    pub amid: String,
+    pub signed_prekey: String,
+    pub signed_prekey_signature: String,
+    pub signed_prekey_id: i32,
+    pub one_time_prekeys: Vec<OneTimePrekey>,
+    pub timestamp: DateTime<Utc>,
+    pub signature: String,
+}
+
+/// Response when fetching prekeys (one-time prekey is consumed)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrekeyResponse {
+    pub identity_key: String,
+    pub signed_prekey: String,
+    pub signed_prekey_signature: String,
+    pub signed_prekey_id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub one_time_prekey: Option<OneTimePrekey>,
 }

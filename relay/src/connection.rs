@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{accept_async, WebSocketStream};
@@ -13,6 +15,11 @@ use tracing::{info, warn, error, debug};
 use crate::types::*;
 use crate::store_forward::StoreForward;
 use crate::auth;
+
+/// Ping interval in seconds (Railway/cloud providers kill idle connections after 30-60s)
+const PING_INTERVAL_SECS: u64 = 25;
+/// Ping timeout - if no pong received within this time, disconnect
+const PING_TIMEOUT_SECS: u64 = 10;
 
 /// Manages all active agent connections
 pub struct ConnectionManager {
@@ -180,9 +187,58 @@ pub async fn handle_connection(
 
             info!("Agent {} connected (session: {})", amid, session_id);
 
-            // Return the read half for message handling
-            tokio::spawn(handle_outgoing(write, rx));
-            tokio::spawn(handle_incoming(ws_read, amid.clone(), manager.clone(), store_forward.clone()));
+            // Shared state for ping/pong tracking
+            let pong_received = Arc::new(AtomicBool::new(true));
+            let pong_received_clone = pong_received.clone();
+
+            // Channel for WebSocket messages (both RelayMessages and raw pings)
+            let (ws_tx, ws_rx) = mpsc::unbounded_channel::<Message>();
+            let ws_tx_clone = ws_tx.clone();
+
+            // Forward RelayMessages to WebSocket message channel
+            let relay_rx_task = {
+                let ws_tx = ws_tx.clone();
+                tokio::spawn(async move {
+                    let mut rx = rx;
+                    while let Some(msg) = rx.recv().await {
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if ws_tx.send(Message::Text(json)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                })
+            };
+
+            // Spawn ping task for keepalive
+            let ping_task = {
+                let amid = amid.clone();
+                let manager = manager.clone();
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(Duration::from_secs(PING_INTERVAL_SECS));
+                    loop {
+                        interval.tick().await;
+
+                        // Check if we received pong from last ping
+                        if !pong_received_clone.load(Ordering::Relaxed) {
+                            warn!("Agent {} did not respond to ping, disconnecting", amid);
+                            manager.unregister(&amid);
+                            break;
+                        }
+
+                        // Send new ping
+                        pong_received_clone.store(false, Ordering::Relaxed);
+                        if ws_tx_clone.send(Message::Ping(vec![])).is_err() {
+                            break;
+                        }
+                        debug!("Sent ping to agent {}", amid);
+                    }
+                })
+            };
+
+            // Spawn handlers
+            tokio::spawn(handle_outgoing(write, ws_rx));
+            tokio::spawn(handle_incoming(ws_read, amid.clone(), manager.clone(), store_forward.clone(), pong_received));
 
             (amid, session_id)
         }
@@ -219,21 +275,34 @@ async fn handle_auth(
         .map_err(|_| "Invalid JSON")?;
 
     match connect_msg {
-        RelayMessage::Connect { protocol, amid, signature, timestamp, p2p_capable } => {
-            // Verify protocol version
-            if protocol != "agentmesh/0.1" {
+        RelayMessage::Connect { protocol, amid, public_key, signature, timestamp, p2p_capable } => {
+            // Verify protocol version (accept 0.1 for backwards compat, 0.2 is preferred)
+            if protocol != "agentmesh/0.1" && protocol != "agentmesh/0.2" {
                 let _ = tx.send(RelayMessage::Error {
                     code: ErrorCode::ProtocolMismatch,
-                    message: format!("Expected agentmesh/0.1, got {}", protocol),
+                    message: format!("Expected agentmesh/0.1 or 0.2, got {}", protocol),
                     retry_after_seconds: None,
                 });
                 return Err("Protocol mismatch");
             }
 
-            // For now, we accept the connection without full signature verification
-            // In production, this would verify the signature proves AMID ownership
-            // TODO: Implement full signature verification with public key lookup
+            // Verify signature proves ownership of AMID
+            if let Err(auth_err) = auth::verify_connection_signature(
+                &amid,
+                &public_key,
+                &signature,
+                timestamp,
+            ) {
+                warn!("Signature verification failed for {}: {:?}", amid, auth_err);
+                let _ = tx.send(RelayMessage::Error {
+                    code: ErrorCode::InvalidSignature,
+                    message: format!("Signature verification failed: {}", auth_err),
+                    retry_after_seconds: None,
+                });
+                return Err("Signature verification failed");
+            }
 
+            debug!("Signature verified for agent {}", amid);
             let session_id = Uuid::new_v4();
             Ok((read, amid, session_id, p2p_capable))
         }
@@ -251,18 +320,10 @@ async fn handle_auth(
 /// Handle outgoing messages to this connection
 async fn handle_outgoing(
     mut write: SplitSink<WebSocketStream<TcpStream>, Message>,
-    mut rx: mpsc::UnboundedReceiver<RelayMessage>,
+    mut rx: mpsc::UnboundedReceiver<Message>,
 ) {
     while let Some(msg) = rx.recv().await {
-        let json = match serde_json::to_string(&msg) {
-            Ok(j) => j,
-            Err(e) => {
-                error!("Failed to serialize message: {}", e);
-                continue;
-            }
-        };
-
-        if let Err(e) = write.send(Message::Text(json)).await {
+        if let Err(e) = write.send(msg).await {
             warn!("Failed to send message: {}", e);
             break;
         }
@@ -275,6 +336,7 @@ async fn handle_incoming(
     amid: Amid,
     manager: Arc<ConnectionManager>,
     store_forward: Arc<StoreForward>,
+    pong_received: Arc<AtomicBool>,
 ) {
     while let Some(msg) = read.next().await {
         let msg = match msg {
@@ -291,8 +353,14 @@ async fn handle_incoming(
                 info!("Agent {} disconnected", amid);
                 break;
             }
-            Message::Ping(data) => {
+            Message::Ping(_) => {
                 // Pong is handled automatically by tungstenite
+                continue;
+            }
+            Message::Pong(_) => {
+                // Received pong response to our ping - mark as alive
+                pong_received.store(true, Ordering::Relaxed);
+                debug!("Received pong from agent {}", amid);
                 continue;
             }
             _ => continue,

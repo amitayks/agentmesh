@@ -134,6 +134,117 @@ class Policy:
         with open(path, 'w') as f:
             json.dump(self.to_dict(), f, indent=2)
 
+    def is_allowlisted(self, amid: str) -> bool:
+        """Check if an AMID is in the allowlist."""
+        return amid in self.allowlist
+
+    def is_blocklisted(self, amid: str) -> bool:
+        """Check if an AMID is in the blocklist."""
+        return amid in self.blocklist
+
+    def accepts_tier(self, tier: float) -> bool:
+        """Check if a tier is accepted by this policy."""
+        return tier in self.accept_tiers
+
+    def accepts_intent(self, intent: str) -> bool:
+        """Check if an intent is accepted by this policy."""
+        # Rejected intents take priority
+        if intent in self.rejected_intents:
+            return False
+        # In strict mode, only explicitly accepted intents allowed
+        if self.strict_mode:
+            return intent in self.accepted_intents
+        # Otherwise, accept if not rejected
+        return True
+
+
+# Default DHT bootstrap nodes
+# Can be overridden via AGENTMESH_DHT_BOOTSTRAP environment variable
+# Format: "host1:port1,host2:port2,host3:port3"
+DEFAULT_DHT_BOOTSTRAP_NODES = [
+    ("bootstrap1.agentmesh.net", 8468),
+    ("bootstrap2.agentmesh.net", 8468),
+    ("bootstrap3.agentmesh.net", 8468),
+]
+
+# Parse DHT bootstrap nodes from environment variable
+_dht_env = os.environ.get("AGENTMESH_DHT_BOOTSTRAP")
+if _dht_env:
+    try:
+        DEFAULT_DHT_BOOTSTRAP_NODES = []
+        for node in _dht_env.split(","):
+            host, port = node.strip().rsplit(":", 1)
+            DEFAULT_DHT_BOOTSTRAP_NODES.append((host, int(port)))
+    except ValueError:
+        pass  # Keep defaults on parse error
+
+# DHT Fallback Behavior:
+# When DHT is unavailable (all bootstrap nodes unreachable):
+# 1. Agent discovery falls back to registry-only mode
+# 2. P2P connections fall back to relay-only mode
+# 3. A warning is logged but operation continues
+# 4. DHT reconnection is attempted periodically (every 5 minutes)
+DHT_RECONNECT_INTERVAL_SECONDS = 300
+DHT_CONNECTION_TIMEOUT_SECONDS = 10
+
+# TURN server configuration for NAT traversal
+# These are loaded from environment variables for security
+DEFAULT_TURN_SERVERS = []
+
+# Load TURN configuration from environment
+_turn_url = os.environ.get("TURN_SERVER_URL")
+_turn_username = os.environ.get("TURN_USERNAME")
+_turn_credential = os.environ.get("TURN_CREDENTIAL")
+
+if _turn_url and _turn_username and _turn_credential:
+    DEFAULT_TURN_SERVERS.append({
+        "url": _turn_url,
+        "username": _turn_username,
+        "credential": _turn_credential,
+    })
+
+
+@dataclass
+class TurnServerConfig:
+    """Configuration for a TURN server."""
+    url: str
+    username: str
+    credential: str
+    credential_type: str = "password"  # 'password' or 'oauth'
+    expires_at: Optional[str] = None  # ISO8601 timestamp for time-limited credentials
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TurnServerConfig":
+        return cls(
+            url=data["url"],
+            username=data["username"],
+            credential=data["credential"],
+            credential_type=data.get("credential_type", "password"),
+            expires_at=data.get("expires_at"),
+        )
+
+    def to_dict(self) -> dict:
+        result = {
+            "url": self.url,
+            "username": self.username,
+            "credential": self.credential,
+            "credential_type": self.credential_type,
+        }
+        if self.expires_at:
+            result["expires_at"] = self.expires_at
+        return result
+
+    def is_expired(self) -> bool:
+        """Check if time-limited credentials have expired."""
+        if not self.expires_at:
+            return False
+        from datetime import datetime, timezone
+        try:
+            expiry = datetime.fromisoformat(self.expires_at.replace('Z', '+00:00'))
+            return datetime.now(timezone.utc) >= expiry
+        except (ValueError, AttributeError):
+            return False
+
 
 @dataclass
 class Config:
@@ -144,13 +255,31 @@ class Config:
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
     ])
+    # TURN servers for NAT traversal fallback (configured via env vars)
+    turn_servers: List[Dict[str, Any]] = field(default_factory=lambda: DEFAULT_TURN_SERVERS.copy())
+    turn_fallback_timeout: float = 5.0  # Seconds to wait for STUN before trying TURN
     enable_p2p: bool = True
     enable_store_forward: bool = True
     session_cache_ttl_hours: int = 24
+    session_cache_max_entries: int = 1000
     key_rotation_days: int = 7
     dashboard_port: int = 7777
     log_level: str = "INFO"
     capabilities: List[str] = field(default_factory=list)
+    # DHT configuration
+    dht_participate: bool = True
+    dht_bootstrap_nodes: List[tuple] = field(default_factory=lambda: DEFAULT_DHT_BOOTSTRAP_NODES.copy())
+    dht_port: int = 8468
+    dht_refresh_hours: int = 4
+    dht_stale_hours: int = 24
+
+    def get_turn_configs(self) -> List[TurnServerConfig]:
+        """Get parsed TURN server configurations."""
+        return [TurnServerConfig.from_dict(ts) for ts in self.turn_servers]
+
+    def get_valid_turn_servers(self) -> List[TurnServerConfig]:
+        """Get non-expired TURN server configurations."""
+        return [ts for ts in self.get_turn_configs() if not ts.is_expired()]
 
     @classmethod
     def default(cls) -> "Config":

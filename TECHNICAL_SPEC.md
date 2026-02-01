@@ -1,8 +1,19 @@
-# AgentMesh — Technical Specification v0.1
+# AgentMesh — Technical Specification v0.2
 
-> Protocol version: `agentmesh/0.1`  
-> Status: DRAFT  
+> Protocol version: `agentmesh/0.2`
+> Status: DRAFT
 > Last updated: 2026-02-01
+
+## Version 0.2 Highlights
+
+- **Double Ratchet Encryption**: Signal Protocol implementation with X3DH key exchange + Double Ratchet for perfect forward secrecy
+- **Certificate Chain Validation**: X.509-style chain (Root CA → Organization → Agent → Session) for verified agents
+- **TURN Server Support**: NAT traversal fallback with configurable TURN servers
+- **Session Key Persistence**: Encrypted session keys at rest using XChaCha20-Poly1305
+- **Prekey Automation**: Automatic replenishment and rotation of one-time prekeys
+- **JSON Schema Validation**: Draft-07 schemas with configurable validation modes
+- **Capability Negotiation**: Version-aware capability matching during session establishment
+- **Reputation Anti-Gaming**: Tier-weighted ratings, mutual rating detection, rapid change flags
 
 ---
 

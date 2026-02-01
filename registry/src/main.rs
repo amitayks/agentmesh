@@ -3,9 +3,15 @@ use sqlx::postgres::PgPoolOptions;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod auth;
 mod handlers;
 mod models;
 mod db;
+mod oauth;
+mod org;
+mod revocation;
+mod reputation;
+mod certs;
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {

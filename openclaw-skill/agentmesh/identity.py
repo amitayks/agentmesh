@@ -86,16 +86,44 @@ class Identity:
         )
 
     @classmethod
+    def _strip_key_prefix(cls, key_str: str, expected_prefix: str) -> str:
+        """Strip key type prefix if present. Logs deprecation warning if missing."""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if key_str.startswith(expected_prefix):
+            return key_str[len(expected_prefix):]
+        elif ':' in key_str:
+            # Has a prefix but wrong type - could be an error
+            prefix, rest = key_str.split(':', 1)
+            logger.warning(f"Key has unexpected prefix '{prefix}:', expected '{expected_prefix}'")
+            return rest
+        else:
+            # No prefix - backwards compatibility, but warn
+            logger.warning(
+                f"Key without type prefix detected. This is deprecated. "
+                f"Keys should be prefixed with '{expected_prefix}'"
+            )
+            return key_str
+
+    @classmethod
     def load(cls, path: Path) -> "Identity":
-        """Load identity from file."""
+        """Load identity from file.
+
+        Accepts keys with or without type prefixes for backwards compatibility.
+        Logs deprecation warning for keys without prefixes.
+        """
         with open(path, 'r') as f:
             data = json.load(f)
 
+        signing_key_b64 = cls._strip_key_prefix(data['signing_private_key'], 'ed25519:')
+        exchange_key_b64 = cls._strip_key_prefix(data['exchange_private_key'], 'x25519:')
+
         signing_private = SigningKey(
-            base64.b64decode(data['signing_private_key'])
+            base64.b64decode(signing_key_b64)
         )
         exchange_private = PrivateKey(
-            base64.b64decode(data['exchange_private_key'])
+            base64.b64decode(exchange_key_b64)
         )
 
         return cls(
@@ -110,19 +138,22 @@ class Identity:
         )
 
     def save(self, path: Path) -> None:
-        """Save identity to file (with restricted permissions)."""
+        """Save identity to file (with restricted permissions).
+
+        Keys are saved with type prefixes (ed25519: / x25519:) per protocol spec.
+        """
         data = {
             'amid': self.amid,
-            'signing_private_key': base64.b64encode(
+            'signing_private_key': 'ed25519:' + base64.b64encode(
                 bytes(self.signing_private_key)
             ).decode(),
-            'signing_public_key': base64.b64encode(
+            'signing_public_key': 'ed25519:' + base64.b64encode(
                 bytes(self.signing_public_key)
             ).decode(),
-            'exchange_private_key': base64.b64encode(
+            'exchange_private_key': 'x25519:' + base64.b64encode(
                 bytes(self.exchange_private_key)
             ).decode(),
-            'exchange_public_key': base64.b64encode(
+            'exchange_public_key': 'x25519:' + base64.b64encode(
                 bytes(self.exchange_public_key)
             ).decode(),
             'created_at': self.created_at.isoformat(),
@@ -138,12 +169,22 @@ class Identity:
 
     @property
     def signing_public_key_b64(self) -> str:
-        """Get signing public key as base64."""
+        """Get signing public key as base64 with type prefix."""
+        return 'ed25519:' + base64.b64encode(bytes(self.signing_public_key)).decode()
+
+    @property
+    def signing_public_key_b64_raw(self) -> str:
+        """Get signing public key as base64 without prefix (for signature verification)."""
         return base64.b64encode(bytes(self.signing_public_key)).decode()
 
     @property
     def exchange_public_key_b64(self) -> str:
-        """Get exchange public key as base64."""
+        """Get exchange public key as base64 with type prefix."""
+        return 'x25519:' + base64.b64encode(bytes(self.exchange_public_key)).decode()
+
+    @property
+    def exchange_public_key_b64_raw(self) -> str:
+        """Get exchange public key as base64 without prefix."""
         return base64.b64encode(bytes(self.exchange_public_key)).decode()
 
     def sign(self, message: bytes) -> bytes:
@@ -167,9 +208,19 @@ class Identity:
         message: bytes,
         signature_b64: str
     ) -> bool:
-        """Verify a signature from another agent."""
+        """Verify a signature from another agent.
+
+        Accepts public keys with or without type prefix.
+        """
         try:
-            public_key = VerifyKey(base64.b64decode(public_key_b64))
+            # Strip prefix if present
+            key_b64 = public_key_b64
+            if key_b64.startswith('ed25519:'):
+                key_b64 = key_b64[8:]
+            elif key_b64.startswith('x25519:'):
+                key_b64 = key_b64[7:]
+
+            public_key = VerifyKey(base64.b64decode(key_b64))
             signature = base64.b64decode(signature_b64)
             public_key.verify(message, signature)
             return True
@@ -185,3 +236,33 @@ class Identity:
             'framework': self.framework,
             'framework_version': self.framework_version,
         }
+
+    def rotate_keys(self) -> None:
+        """
+        Rotate cryptographic keys.
+
+        This generates new signing and exchange keypairs and updates the AMID.
+        The old keys are discarded - any active sessions using the old keys
+        will continue to work (they use established session keys), but new
+        sessions will use the new identity.
+
+        Note: After rotation, you must re-register with the registry to update
+        your public keys and invalidate any cached session lookups.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        old_amid = self.amid
+
+        # Generate new signing keypair
+        self.signing_private_key = SigningKey.generate()
+        self.signing_public_key = self.signing_private_key.verify_key
+
+        # Generate new exchange keypair
+        self.exchange_private_key = PrivateKey.generate()
+        self.exchange_public_key = self.exchange_private_key.public_key
+
+        # Derive new AMID
+        self.amid = derive_amid(bytes(self.signing_public_key))
+
+        logger.info(f"Key rotation completed: {old_amid} -> {self.amid}")
