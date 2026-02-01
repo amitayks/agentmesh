@@ -1,0 +1,65 @@
+# AgentMesh Development Stack
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: agentmesh
+      POSTGRES_PASSWORD: agentmesh_dev
+      POSTGRES_DB: agentmesh
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./registry/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentmesh"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Registry API
+  registry:
+    build:
+      context: ./registry
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://agentmesh:agentmesh_dev@postgres:5432/agentmesh
+      RUST_LOG: agentmesh_registry=info,actix_web=info
+      HOST: 0.0.0.0
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/v1/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  # Relay Server
+  relay:
+    build:
+      context: ./relay
+      dockerfile: Dockerfile
+    environment:
+      RUST_LOG: agentmesh_relay=info
+      RELAY_ADDR: 0.0.0.0:8765
+    ports:
+      - "8765:8765"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "8765"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: agentmesh
