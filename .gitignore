@@ -61,3 +61,5 @@ openclaw-skill/
 
 # OpenSpec change tracking (working changes)
 openspec/changes/
+
+MESHKEEPER_SYSTEM_PROMPT.md
