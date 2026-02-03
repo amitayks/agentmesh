@@ -1,11 +1,21 @@
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::{info, warn, error};
 use chrono::{Utc, Duration};
 use uuid::Uuid;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use ring::rand::{SystemRandom, SecureRandom};
+
+use crate::AppState;
+
+/// Helper to return 503 Service Unavailable during startup
+fn service_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable()
+        .content_type("application/json")
+        .body(r#"{"error":"Service is starting up","status":"starting"}"#)
+}
 
 /// OAuth provider configuration
 #[derive(Debug, Clone)]
@@ -241,10 +251,16 @@ fn generate_state() -> String {
 
 /// Start OAuth authorization flow
 pub async fn authorize(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     config: web::Data<OAuthConfig>,
     req: web::Json<AuthorizeRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     let provider = req.provider.to_lowercase();
 
     // Validate provider
@@ -259,11 +275,11 @@ pub async fn authorize(
                 }
             };
 
-            let state = generate_state();
+            let oauth_state = generate_state();
             let redirect_uri = format!("{}/v1/auth/oauth/callback", config.callback_base_url);
 
             // Store state in database
-            if let Err(e) = store_oauth_state(&pool, &state, &req.amid, "github").await {
+            if let Err(e) = store_oauth_state(pool, &oauth_state, &req.amid, "github").await {
                 error!("Failed to store OAuth state: {}", e);
                 return HttpResponse::InternalServerError().json(serde_json::json!({
                     "error": "Failed to initiate OAuth flow"
@@ -274,12 +290,12 @@ pub async fn authorize(
                 "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&state={}&scope=read:user%20user:email",
                 client_id,
                 urlencoding::encode(&redirect_uri),
-                urlencoding::encode(&state)
+                urlencoding::encode(&oauth_state)
             );
 
             AuthorizeResponse {
                 authorization_url: url,
-                state,
+                state: oauth_state,
                 expires_in: 600, // 10 minutes
             }
         }
@@ -293,11 +309,11 @@ pub async fn authorize(
                 }
             };
 
-            let state = generate_state();
+            let oauth_state = generate_state();
             let redirect_uri = format!("{}/v1/auth/oauth/callback", config.callback_base_url);
 
             // Store state in database
-            if let Err(e) = store_oauth_state(&pool, &state, &req.amid, "google").await {
+            if let Err(e) = store_oauth_state(pool, &oauth_state, &req.amid, "google").await {
                 error!("Failed to store OAuth state: {}", e);
                 return HttpResponse::InternalServerError().json(serde_json::json!({
                     "error": "Failed to initiate OAuth flow"
@@ -308,12 +324,12 @@ pub async fn authorize(
                 "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&state={}&response_type=code&scope=openid%20email%20profile",
                 client_id,
                 urlencoding::encode(&redirect_uri),
-                urlencoding::encode(&state)
+                urlencoding::encode(&oauth_state)
             );
 
             AuthorizeResponse {
                 authorization_url: url,
-                state,
+                state: oauth_state,
                 expires_in: 600,
             }
         }
@@ -330,12 +346,18 @@ pub async fn authorize(
 
 /// Handle OAuth callback
 pub async fn callback(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     config: web::Data<OAuthConfig>,
     params: web::Query<CallbackParams>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     // Look up state in database
-    let oauth_state = match get_oauth_state(&pool, &params.state).await {
+    let oauth_state = match get_oauth_state(pool, &params.state).await {
         Ok(Some(s)) => s,
         Ok(None) => {
             warn!("OAuth callback with unknown state: {}", params.state);
@@ -374,7 +396,7 @@ pub async fn callback(
     }
 
     // Delete state (one-time use)
-    let _ = delete_oauth_state(&pool, &params.state).await;
+    let _ = delete_oauth_state(pool, &params.state).await;
 
     // Exchange code for token and get user info
     let verified_identity = match oauth_state.provider.as_str() {
@@ -423,7 +445,7 @@ pub async fn callback(
     };
 
     // Store verification and upgrade tier
-    if let Err(e) = store_verification(&pool, &oauth_state.amid, &verified_identity).await {
+    if let Err(e) = store_verification(pool, &oauth_state.amid, &verified_identity).await {
         error!("Failed to store verification: {}", e);
         return HttpResponse::InternalServerError().json(VerificationResult {
             success: false,

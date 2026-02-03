@@ -1,11 +1,20 @@
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::{info, warn, error};
 use chrono::{Utc, Duration};
 use uuid::Uuid;
 
 use crate::auth;
+use crate::AppState;
+
+/// Helper to return 503 Service Unavailable during startup
+fn service_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable()
+        .content_type("application/json")
+        .body(r#"{"error":"Service is starting up","status":"starting"}"#)
+}
 
 /// Reputation feedback entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,10 +134,16 @@ const MIN_RATINGS_FOR_RANKING: i64 = 5;
 
 /// Calculate reputation score for an agent
 pub async fn calculate_reputation(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     query: web::Query<AmidQuery>,
 ) -> impl Responder {
-    match calculate_reputation_score(&pool, &query.amid).await {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
+    match calculate_reputation_score(pool, &query.amid).await {
         Ok(score) => HttpResponse::Ok().json(score),
         Err(e) => {
             error!("Reputation calculation error: {}", e);
@@ -146,9 +161,15 @@ pub struct AmidQuery {
 
 /// Submit reputation feedback
 pub async fn submit_feedback(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     req: web::Json<SubmitFeedbackRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     // Validate score
     if req.score < 0.0 || req.score > 1.0 {
         return HttpResponse::BadRequest().json(serde_json::json!({
@@ -157,7 +178,7 @@ pub async fn submit_feedback(
     }
 
     // Look up sender to verify and get tier
-    let sender = match get_agent(&pool, &req.from_amid).await {
+    let sender = match get_agent(pool, &req.from_amid).await {
         Ok(Some(a)) => a,
         Ok(None) => {
             return HttpResponse::Unauthorized().json(serde_json::json!({
@@ -185,21 +206,21 @@ pub async fn submit_feedback(
     }
 
     // Verify target exists
-    if get_agent(&pool, &req.target_amid).await.unwrap_or(None).is_none() {
+    if get_agent(pool, &req.target_amid).await.unwrap_or(None).is_none() {
         return HttpResponse::NotFound().json(serde_json::json!({
             "error": "Target agent not found"
         }));
     }
 
     // Check for duplicate feedback on same session
-    if has_existing_feedback(&pool, &req.from_amid, &req.session_id).await.unwrap_or(false) {
+    if has_existing_feedback(pool, &req.from_amid, &req.session_id).await.unwrap_or(false) {
         return HttpResponse::Conflict().json(serde_json::json!({
             "error": "Feedback already submitted for this session"
         }));
     }
 
     // Detect rapid change (5+ feedbacks in 1 hour from same source)
-    if let Ok(recent_count) = get_recent_feedback_count(&pool, &req.from_amid, &req.target_amid).await {
+    if let Ok(recent_count) = get_recent_feedback_count(pool, &req.from_amid, &req.target_amid).await {
         if recent_count >= 5 {
             warn!("Rapid feedback detected: {} -> {}", req.from_amid, req.target_amid);
             // Still record but flag for review
@@ -211,7 +232,7 @@ pub async fn submit_feedback(
     let tags = req.tags.clone().unwrap_or_default();
 
     match store_feedback(
-        &pool,
+        pool,
         feedback_id,
         &req.target_amid,
         &req.from_amid,
@@ -222,7 +243,7 @@ pub async fn submit_feedback(
     ).await {
         Ok(_) => {
             // Update cached reputation score
-            if let Err(e) = update_cached_reputation(&pool, &req.target_amid).await {
+            if let Err(e) = update_cached_reputation(pool, &req.target_amid).await {
                 warn!("Failed to update cached reputation: {}", e);
             }
 
@@ -243,9 +264,15 @@ pub async fn submit_feedback(
 
 /// Record a completed session
 pub async fn record_session(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     req: web::Json<RecordSessionRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     // Verify reporter is one of the participants
     if req.reporter_amid != req.initiator_amid && req.reporter_amid != req.receiver_amid {
         return HttpResponse::Forbidden().json(serde_json::json!({
@@ -254,7 +281,7 @@ pub async fn record_session(
     }
 
     // Look up reporter
-    let reporter = match get_agent(&pool, &req.reporter_amid).await {
+    let reporter = match get_agent(pool, &req.reporter_amid).await {
         Ok(Some(a)) => a,
         Ok(None) => {
             return HttpResponse::Unauthorized().json(serde_json::json!({
@@ -284,7 +311,7 @@ pub async fn record_session(
     // Store session record
     let session_record_id = Uuid::new_v4();
     match store_completed_session(
-        &pool,
+        pool,
         session_record_id,
         &req.session_id,
         &req.initiator_amid,
@@ -311,13 +338,19 @@ pub async fn record_session(
 
 /// Get top agents by reputation
 pub async fn leaderboard(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     query: web::Query<LeaderboardQuery>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     let limit = query.limit.unwrap_or(20).min(100);
     let intent = query.intent.as_deref();
 
-    match get_reputation_leaderboard(&pool, limit, intent).await {
+    match get_reputation_leaderboard(pool, limit, intent).await {
         Ok(entries) => HttpResponse::Ok().json(serde_json::json!({
             "leaderboard": entries,
             "limit": limit,

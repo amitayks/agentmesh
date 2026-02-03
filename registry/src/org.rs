@@ -1,6 +1,7 @@
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::{info, warn, error};
 use chrono::{Utc, Duration};
 use uuid::Uuid;
@@ -9,6 +10,14 @@ use ring::rand::{SystemRandom, SecureRandom};
 use sha2::{Sha256, Digest};
 
 use crate::auth;
+use crate::AppState;
+
+/// Helper to return 503 Service Unavailable during startup
+fn service_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable()
+        .content_type("application/json")
+        .body(r#"{"error":"Service is starting up","status":"starting"}"#)
+}
 
 /// Organization model
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,9 +125,15 @@ fn generate_dns_challenge() -> String {
 
 /// Register a new organization
 pub async fn register_org(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     req: web::Json<RegisterOrgRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     info!("Organization registration request for domain: {}", req.domain);
 
     // Verify admin signature
@@ -138,7 +153,7 @@ pub async fn register_org(
     }
 
     // Check if domain already registered
-    if let Ok(Some(_)) = get_org_by_domain(&pool, &req.domain).await {
+    if let Ok(Some(_)) = get_org_by_domain(pool, &req.domain).await {
         return HttpResponse::Conflict().json(RegisterOrgResponse {
             success: false,
             organization_id: None,
@@ -160,7 +175,7 @@ pub async fn register_org(
         expires_at: challenge_expires,
     };
 
-    match create_organization(&pool, org_id, &req.name, &req.domain, &req.admin_amid, &challenge).await {
+    match create_organization(pool, org_id, &req.name, &req.domain, &req.admin_amid, &challenge).await {
         Ok(_) => {
             info!("Organization {} created with ID {}", req.domain, org_id);
             HttpResponse::Created().json(RegisterOrgResponse {
@@ -184,11 +199,17 @@ pub async fn register_org(
 
 /// Verify DNS TXT record for organization
 pub async fn verify_dns(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     req: web::Json<VerifyDnsRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     // Get organization
-    let org = match get_org_by_id(&pool, req.organization_id).await {
+    let org = match get_org_by_id(pool, req.organization_id).await {
         Ok(Some(o)) => o,
         Ok(None) => {
             return HttpResponse::NotFound().json(VerifyDnsResponse {
@@ -269,7 +290,7 @@ pub async fn verify_dns(
     let root_cert = generate_org_root_certificate(&org);
 
     // Update organization
-    if let Err(e) = mark_org_verified(&pool, req.organization_id, &root_cert).await {
+    if let Err(e) = mark_org_verified(pool, req.organization_id, &root_cert).await {
         error!("Failed to update organization: {}", e);
         return HttpResponse::InternalServerError().json(VerifyDnsResponse {
             success: false,
@@ -291,11 +312,17 @@ pub async fn verify_dns(
 
 /// Register an agent under an organization
 pub async fn register_org_agent(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     req: web::Json<RegisterOrgAgentRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     // Get organization
-    let org = match get_org_by_id(&pool, req.organization_id).await {
+    let org = match get_org_by_id(pool, req.organization_id).await {
         Ok(Some(o)) => o,
         Ok(None) => {
             return HttpResponse::NotFound().json(RegisterOrgAgentResponse {
@@ -335,7 +362,7 @@ pub async fn register_org_agent(
     // Create agent record with organization tier
     let agent_id = Uuid::new_v4();
     match create_org_agent(
-        &pool,
+        pool,
         agent_id,
         &req.agent_amid,
         &req.agent_signing_public_key,
@@ -369,12 +396,18 @@ pub async fn register_org_agent(
 
 /// Get organization by domain
 pub async fn lookup_org(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     query: web::Query<OrgQuery>,
 ) -> impl Responder {
-    match get_org_by_domain(&pool, &query.domain).await {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
+    match get_org_by_domain(pool, &query.domain).await {
         Ok(Some(org)) => {
-            let agent_count = get_org_agent_count(&pool, org.id).await.unwrap_or(0);
+            let agent_count = get_org_agent_count(pool, org.id).await.unwrap_or(0);
             HttpResponse::Ok().json(OrgLookup {
                 id: org.id,
                 name: org.name,

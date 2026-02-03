@@ -1,11 +1,20 @@
 use actix_web::{web, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tracing::{info, warn, error};
 use chrono::Utc;
 use uuid::Uuid;
 
 use crate::auth;
+use crate::AppState;
+
+/// Helper to return 503 Service Unavailable during startup
+fn service_unavailable() -> HttpResponse {
+    HttpResponse::ServiceUnavailable()
+        .content_type("application/json")
+        .body(r#"{"error":"Service is starting up","status":"starting"}"#)
+}
 
 /// Revocation reasons
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -97,13 +106,19 @@ pub struct RevocationListResponse {
 
 /// Revoke an agent's certificate
 pub async fn revoke_agent(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     req: web::Json<RevokeRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     info!("Revocation request for {} by {}", req.amid, req.revoker_amid);
 
     // Look up the revoker to verify they have permission
-    let revoker = match get_agent_by_amid(&pool, &req.revoker_amid).await {
+    let revoker = match get_agent_by_amid(pool, &req.revoker_amid).await {
         Ok(Some(a)) => a,
         Ok(None) => {
             return HttpResponse::Unauthorized().json(RevokeResponse {
@@ -137,7 +152,7 @@ pub async fn revoke_agent(
     }
 
     // Check if already revoked
-    if let Ok(Some(_)) = get_revocation(&pool, &req.amid).await {
+    if let Ok(Some(_)) = get_revocation(pool, &req.amid).await {
         return HttpResponse::Conflict().json(RevokeResponse {
             success: false,
             revocation_id: None,
@@ -146,7 +161,7 @@ pub async fn revoke_agent(
     }
 
     // Permission check: agent can revoke themselves, or org admin can revoke org agents
-    let target = match get_agent_by_amid(&pool, &req.amid).await {
+    let target = match get_agent_by_amid(pool, &req.amid).await {
         Ok(Some(a)) => a,
         Ok(None) => {
             return HttpResponse::NotFound().json(RevokeResponse {
@@ -170,7 +185,7 @@ pub async fn revoke_agent(
         true
     } else if let (Some(revoker_org), Some(target_org)) = (revoker.organization_id, target.organization_id) {
         // Check if revoker is org admin for target's org
-        revoker_org == target_org && is_org_admin(&pool, revoker_org, &req.revoker_amid).await.unwrap_or(false)
+        revoker_org == target_org && is_org_admin(pool, revoker_org, &req.revoker_amid).await.unwrap_or(false)
     } else {
         false
     };
@@ -186,7 +201,7 @@ pub async fn revoke_agent(
     // Create revocation entry
     let revocation_id = Uuid::new_v4();
     match create_revocation(
-        &pool,
+        pool,
         revocation_id,
         &req.amid,
         &req.reason.to_string(),
@@ -214,10 +229,16 @@ pub async fn revoke_agent(
 
 /// Check revocation status of a single agent
 pub async fn check_revocation(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     query: web::Query<AmidQuery>,
 ) -> impl Responder {
-    match get_revocation(&pool, &query.amid).await {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
+    match get_revocation(pool, &query.amid).await {
         Ok(Some(rev)) => {
             HttpResponse::Ok().json(RevocationStatus {
                 amid: query.amid.clone(),
@@ -248,9 +269,15 @@ pub struct AmidQuery {
 
 /// Bulk check revocation status
 pub async fn bulk_check_revocation(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     req: web::Json<BulkCheckRequest>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     if req.amids.len() > 100 {
         return HttpResponse::BadRequest().json(serde_json::json!({
             "error": "Maximum 100 AMIDs per request"
@@ -261,7 +288,7 @@ pub async fn bulk_check_revocation(
     let mut total_revoked = 0;
 
     for amid in &req.amids {
-        match get_revocation(&pool, amid).await {
+        match get_revocation(pool, amid).await {
             Ok(Some(rev)) => {
                 total_revoked += 1;
                 results.push(RevocationStatus {
@@ -297,13 +324,19 @@ pub async fn bulk_check_revocation(
 
 /// Get full revocation list (for CRL caching)
 pub async fn get_revocation_list(
-    pool: web::Data<PgPool>,
+    state: web::Data<Arc<AppState>>,
     query: web::Query<ListQuery>,
 ) -> impl Responder {
+    // Check readiness
+    let pool = match state.require_ready() {
+        Ok(p) => p,
+        Err(_) => return service_unavailable(),
+    };
+
     let limit = query.limit.unwrap_or(1000).min(10000);
     let offset = query.offset.unwrap_or(0);
 
-    match get_all_revocations(&pool, limit, offset).await {
+    match get_all_revocations(pool, limit, offset).await {
         Ok((revocations, total)) => {
             let now = Utc::now();
             HttpResponse::Ok().json(RevocationListResponse {
