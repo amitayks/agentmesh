@@ -51,6 +51,16 @@ htmlcov/
 # Local development
 *.local
 working-desk.md
+.claude/settings.local.json
+
+# Internal development files (not for public repo)
+CEO.md
+OPEN_ISSUES.md
+AUDIT_PROMPT.md
+
+# Test agent identities (contain private keys)
+examples/.test_agents/
+**/.test_agents/
 
 # Test files and examples (not part of core project)
 examples/
@@ -58,6 +68,7 @@ examples/
 
 # OpenClaw Worker (separate Cloudflare Worker project)
 openclaw-worker/
+meshfan-worker/
 
 # OpenClaw Python Skill (separate project)
 openclaw-skill/
